@@ -45,6 +45,12 @@ def name_of(ev):
     return (ev.get("who") or "").strip() or (ev.get("title") or "").strip()
 
 
+def person_booking(ev):
+    """Only 'Ordinary booking' and 'Prolonged booking' are people; the meeting calendars aren't."""
+    ids = {i.strip() for i in env("PERSON_SUBCALENDARS", "13125025,13125026").split(",") if i.strip()}
+    return any(str(i) in ids for i in ev.get("subcalendar_ids") or [ev.get("subcalendar_id")])
+
+
 def ts(s):
     return datetime.fromisoformat(s).timestamp()
 
@@ -55,6 +61,9 @@ def when(ev):
 
 
 def notify(title, message, at=None, priority="high", tags="musical_keyboard"):
+    if not env("NTFY_TOPIC"):
+        print("NTFY_TOPIC isn't set yet, so no push was sent.")
+        return
     headers = {"Title": title.encode("utf-8"), "Priority": priority, "Tags": tags}
     if at and at > time.time() + 15:
         headers["At"] = str(int(at))
@@ -66,8 +75,6 @@ def notify(title, message, at=None, priority="high", tags="musical_keyboard"):
 def fetch_events():
     today = date.today()
     q = f"startDate={today - timedelta(days=1)}&endDate={today + timedelta(days=60)}"
-    if env("SUBCALENDAR_ID"):
-        q += f"&subcalendarId[]={env('SUBCALENDAR_ID')}"
     cal = env("CALENDAR_KEY").rstrip("/").split("/")[-1]  # accepts the key or the whole link
     data = http(f"https://api.teamup.com/{cal}/events?{q}",
                 headers={"Teamup-Token": env("TEAMUP_KEY")})
@@ -92,6 +99,8 @@ def main():
         seen[key] = ver
         if first_run or not changed or ts(ev["end_dt"]) < now:
             continue
+        if not person_booking(ev):
+            continue  # council meetings etc. are not people
         name = name_of(ev)
         if not name:
             alerts.append(f"No name: {when(ev)}")

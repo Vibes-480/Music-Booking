@@ -15,7 +15,22 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem("mr." + k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem("mr." + k, JSON.stringify(v)); } catch {} },
 };
-let S = store.get("settings", { teamupKey: "", calendarKey: "", subcalId: "", myName: "Ronny", ghToken: "" });
+let S = store.get("settings", { teamupKey: "", calendarKey: "", subcalId: "", myName: "Ronny", ghToken: "", subcals: [] });
+/* Calendars whose events are people's bookings ("Ordinary booking", "Prolonged booking").
+   The rest (council meetings etc.) still block the room but never count as a person. */
+function personCals() {
+  const ids = new Set((S.subcals || []).filter(c => /booking/i.test(c.name)).map(c => String(c.id)));
+  if (S.subcalId) ids.add(String(S.subcalId));
+  return ids;
+}
+const calName = ev => (S.subcals || []).find(c => (ev.subcalendar_ids || []).map(String).includes(String(c.id)))?.name || "";
+const isPersonEv = ev => { const ids = personCals(); return !ids.size || (ev.subcalendar_ids || []).some(id => ids.has(String(id))); };
+async function loadSubcals() {
+  const j = await tu("/subcalendars");
+  S.subcals = (j?.subcalendars || []).filter(c => c.active !== false).map(c => ({ id: c.id, name: c.name, readonly: !!c.readonly }));
+  if (!S.subcalId) S.subcalId = String(S.subcals.find(c => !c.readonly && /booking/i.test(c.name))?.id || S.subcals.find(c => !c.readonly)?.id || "");
+  store.set("settings", S);
+}
 let favs = store.get("favs", []);
 let known = store.get("known", []);
 let tab = store.get("tab", "now");
@@ -48,6 +63,7 @@ function knownMap() {           // "Anna K = Anna" means both spellings are Anna
 }
 const rawName = ev => (ev.who || "").trim() || (ev.title || "").trim();
 function person(ev) {
+  if (!isPersonEv(ev)) return { name: (ev.title || "").trim() || calName(ev), kind: "event", cal: calName(ev) };
   const n = rawName(ev); if (!n) return { name: "", kind: "noname" };
   const k = knownMap().get(n.toLowerCase());
   if (k) return { name: k, kind: k.toLowerCase() === S.myName.toLowerCase() ? "me" : "known" };
@@ -72,8 +88,7 @@ async function tu(path, method = "GET", body) {
 }
 function norm(e) { return { ...e, s: new Date(e.start_dt), e: new Date(e.end_dt) }; }
 async function getEvents(from, to) {
-  const sub = S.subcalId ? `&subcalendarId[]=${encodeURIComponent(S.subcalId)}` : "";
-  const j = await tu(`/events?startDate=${ymd(from)}&endDate=${ymd(to)}${sub}`);
+  const j = await tu(`/events?startDate=${ymd(from)}&endDate=${ymd(to)}`);
   return (j?.events || []).filter(e => !e.all_day).map(norm).sort((a, b) => a.s - b.s);
 }
 function eventBody(ev, changes) {
@@ -162,7 +177,8 @@ function renderNow() {
     const p = person(ev), cls = ev.s <= now && ev.e > now ? "now" : ev.e <= now ? "past" : "";
     const who = p.kind === "me" ? `<span class="me">${esc(p.name)}</span>`
       : p.kind === "noname" ? `<span class="pill noname">No name</span>`
-      : p.kind === "unknown" ? `${esc(p.name)} <span class="pill unknown">New</span>` : esc(p.name);
+      : p.kind === "unknown" ? `${esc(p.name)} <span class="pill unknown">New</span>`
+      : p.kind === "event" ? (p.cal && p.cal !== p.name ? `${esc(p.name)} <span class="pill event">${esc(p.cal)}</span>` : `${esc(p.name)} <span class="pill event">Meeting</span>`) : esc(p.name);
     return `<div class="row ${cls}"><span>${who}</span><span class="t">${hm(ev.s)}–${hm(ev.e)}</span></div>`;
   };
 
@@ -273,7 +289,7 @@ async function loadHistory(force) {
     const to = addMin(now, -i * 90 * 1440), from = addMin(to, -89 * 1440);
     const ev = await getEvents(from, to);
     empty = ev.length ? 0 : empty + 1;
-    for (const e of ev) if (e.s < now) out.push([e.s.getTime(), e.e.getTime(), rawName(e)]);
+    for (const e of ev) if (e.s < now && isPersonEv(e)) out.push([e.s.getTime(), e.e.getTime(), rawName(e)]);
   }
   const seen = new Set();
   history = { fetched: Date.now(), ev: out.filter(x => { const k = x.join("|"); return !seen.has(k) && seen.add(k); }) };
@@ -395,8 +411,8 @@ function renderSettings(first) {
       <label>TeamUp API key<input id="s-key" value="${esc(S.teamupKey)}" autocomplete="off" spellcheck="false"></label>
       <label>TeamUp link (the one you use to book)<input id="s-cal" value="${S.calendarKey ? "https://teamup.com/" + esc(S.calendarKey) : ""}" placeholder="https://teamup.com/ks…" autocomplete="off" spellcheck="false"></label>
       <label>Your name on bookings<input id="s-name" value="${esc(S.myName)}"></label>
-      <label>Room (sub-calendar)<select id="s-sub"><option value="">Load rooms after entering the key and link</option></select></label>
-      <button id="s-load">Load rooms</button>
+      <label>Book into<select id="s-sub"><option value="">Tap "Load calendars" first</option></select></label>
+      <button id="s-load">Load calendars</button>
       <label>GitHub token (optional, lets the People list reach your alerts)<input id="s-gh" value="${esc(S.ghToken)}" autocomplete="off" spellcheck="false"></label>
       <button class="primary" id="s-save">Save</button>
     </div>`;
@@ -408,10 +424,10 @@ function renderSettings(first) {
   const loadRooms = async () => {
     const prev = S; S = { ...S, ...read() };
     try {
-      const j = await tu("/subcalendars");
-      const subs = (j?.subcalendars || []).filter(s => s.active !== false);
-      $("#s-sub").innerHTML = `<option value="">All</option>` + subs.map(s => `<option value="${s.id}" ${String(s.id) === String(prev.subcalId) ? "selected" : ""}>${esc(s.name)}</option>`).join("");
-      if (subs.length === 1) $("#s-sub").value = subs[0].id;
+      await loadSubcals();
+      const subs = S.subcals.filter(c => !c.readonly);
+      $("#s-sub").innerHTML = subs.map(c => `<option value="${c.id}" ${String(c.id) === String(S.subcalId) ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+      prev.subcals = S.subcals; if (!prev.subcalId) prev.subcalId = S.subcalId;
     } catch (e) { toast(e.message); }
     S = prev;
   };
@@ -419,7 +435,7 @@ function renderSettings(first) {
   if (S.teamupKey && S.calendarKey) loadRooms();
   $("#s-save").onclick = () => {
     const n = read(); if (!n.teamupKey || !n.calendarKey) return toast("Fill in the API key and the TeamUp link.");
-    S = n; store.set("settings", S); history = null; store.set("history", null);
+    S = { ...n, subcals: S.subcals || [] }; store.set("settings", S); history = null; store.set("history", null);
     $("#nav").hidden = false; switchTab("now");
   };
 }
@@ -442,4 +458,5 @@ setInterval(() => { if (!document.hidden && tab === "now" && S.teamupKey && !pen
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 if (!S.teamupKey || !S.calendarKey) renderSettings(true);
-else { $("#nav").hidden = false; loadKnown().catch(() => {}); switchTab(tab); }
+else { $("#nav").hidden = false; loadKnown().catch(() => {});
+  (S.subcals?.length ? Promise.resolve() : loadSubcals()).catch(() => {}).finally(() => switchTab(tab)); }

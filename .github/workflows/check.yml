@@ -33,7 +33,7 @@ jobs:
           CALENDAR_KEY: ${{ secrets.CALENDAR_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           KNOWN_PEOPLE: ${{ vars.KNOWN_PEOPLE }}
-          SUBCALENDAR_ID: ${{ vars.SUBCALENDAR_ID }}
+          PERSON_SUBCALENDARS: ${{ vars.PERSON_SUBCALENDARS }}
           MY_NAME: ${{ vars.MY_NAME || 'Ronny' }}
           APP_URL: https://vibes-480.github.io/Music-Booking/
         run: python3 check.py ${{ inputs.test_alert && '--test-alert' || '' }}
