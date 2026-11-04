@@ -27,6 +27,8 @@ jobs:
           path: state.json
           key: state-${{ github.run_id }}
           restore-keys: state-
+      - name: Install decryption library
+        run: python3 -m pip install --quiet --break-system-packages cryptography
       - name: Check TeamUp
         env:
           TEAMUP_KEY: ${{ secrets.TEAMUP_KEY }}

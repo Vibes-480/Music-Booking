@@ -361,15 +361,34 @@ async function gh(path, method = "GET", body) {
   if (!r.ok && r.status !== 404) throw new Error(`GitHub error ${r.status}. Check the GitHub token in Settings.`);
   return r.status === 404 ? null : r.status === 204 ? {} : r.json().catch(() => ({}));
 }
+/* The list is encrypted before it goes to GitHub, because this repo's Action logs are public.
+   The key comes from the TeamUp link, which the alert check has as a secret. */
+async function listKey() {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("music-room:" + S.calendarKey));
+  return crypto.subtle.importKey("raw", h, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+async function encryptList(list) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await listKey(), new TextEncoder().encode(JSON.stringify(list))));
+  const all = new Uint8Array(12 + ct.length); all.set(iv); all.set(ct, 12);
+  return "enc:" + btoa(String.fromCharCode(...all));
+}
+async function decryptList(v) {
+  if (!v.startsWith("enc:")) return JSON.parse(v);
+  const all = Uint8Array.from(atob(v.slice(4)), c => c.charCodeAt(0));
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: all.slice(0, 12) }, await listKey(), all.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
 async function loadKnown() {
   if (!S.ghToken) return;
   const v = await gh("/actions/variables/KNOWN_PEOPLE");
-  if (v?.value) { try { known = JSON.parse(v.value); store.set("known", known); } catch {} }
+  if (v?.value) { try { known = await decryptList(v.value); store.set("known", known);
+    if (!v.value.startsWith("enc:")) await saveKnown(); } catch {} }
 }
 async function saveKnown() {
   store.set("known", known);
   if (!S.ghToken) return "Saved on this device only. Add a GitHub token in Settings so alerts use this list.";
-  const body = { name: "KNOWN_PEOPLE", value: JSON.stringify(known) };
+  const body = { name: "KNOWN_PEOPLE", value: await encryptList(known) };
   const r = await gh("/actions/variables/KNOWN_PEOPLE", "PATCH", body);
   if (r === null) await gh("/actions/variables", "POST", body);
   return "Saved";

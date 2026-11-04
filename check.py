@@ -32,9 +32,23 @@ def http(url, method="GET", headers=None, body=None):
     return json.loads(raw) if raw else None
 
 
+def known_list():
+    """The app stores the list encrypted ("enc:...") with a key made from the TeamUp link."""
+    raw = env("KNOWN_PEOPLE", "[]") or "[]"
+    if not raw.startswith("enc:"):
+        return json.loads(raw)
+    import base64
+    import hashlib
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    cal = env("CALENDAR_KEY").rstrip("/").split("/")[-1]
+    key = hashlib.sha256(f"music-room:{cal}".encode()).digest()
+    blob = base64.b64decode(raw[4:])
+    return json.loads(AESGCM(key).decrypt(blob[:12], blob[12:], None))
+
+
 def known_map():
     out = {}
-    for entry in json.loads(env("KNOWN_PEOPLE", "[]") or "[]"):
+    for entry in known_list():
         parts = [p.strip() for p in str(entry).split("=") if p.strip()]
         for p in parts:
             out[p.lower()] = parts[0]
