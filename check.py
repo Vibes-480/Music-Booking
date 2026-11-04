@@ -68,7 +68,8 @@ def fetch_events():
     q = f"startDate={today - timedelta(days=1)}&endDate={today + timedelta(days=60)}"
     if env("SUBCALENDAR_ID"):
         q += f"&subcalendarId[]={env('SUBCALENDAR_ID')}"
-    data = http(f"https://api.teamup.com/{env('CALENDAR_KEY')}/events?{q}",
+    cal = env("CALENDAR_KEY").rstrip("/").split("/")[-1]  # accepts the key or the whole link
+    data = http(f"https://api.teamup.com/{cal}/events?{q}",
                 headers={"Teamup-Token": env("TEAMUP_KEY")})
     return [e for e in data.get("events", []) if not e.get("all_day")]
 
