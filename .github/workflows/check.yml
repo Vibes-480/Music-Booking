@@ -1,0 +1,56 @@
+name: Music room check
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Only send a test push"
+        type: boolean
+        default: false
+
+concurrency: music-room-check
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load what was seen last time
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+      - name: Check TeamUp
+        env:
+          TEAMUP_KEY: ${{ secrets.TEAMUP_KEY }}
+          CALENDAR_KEY: ${{ secrets.CALENDAR_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          KNOWN_PEOPLE: ${{ vars.KNOWN_PEOPLE }}
+          SUBCALENDAR_ID: ${{ vars.SUBCALENDAR_ID }}
+          MY_NAME: ${{ vars.MY_NAME || 'Ronny' }}
+          APP_URL: https://vibes-480.github.io/Music-Booking/
+        run: python3 check.py ${{ inputs.test_alert && '--test-alert' || '' }}
+      - name: Save what was seen
+        if: ${{ !inputs.test_alert }}
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: state-${{ github.run_id }}
+      # GitHub pauses scheduled jobs after 60 days without commits, so touch a file once a month.
+      - name: Keep the schedule alive
+        if: github.event_name == 'schedule'
+        run: |
+          month=$(date -u +%Y-%m)
+          if [ "$(cat keepalive.txt 2>/dev/null)" != "$month" ]; then
+            echo "$month" > keepalive.txt
+            git config user.name "music-room-bot"
+            git config user.email "music-room-bot@users.noreply.github.com"
+            git add keepalive.txt && git commit -m "Keep schedule alive" && git push
+          fi
