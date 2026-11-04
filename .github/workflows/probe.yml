@@ -1,0 +1,14 @@
+name: Probe TeamUp (read-only)
+on:
+  push:
+    branches: [probe]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 probe.py
+        env:
+          TEAMUP_KEY: ${{ secrets.TEAMUP_KEY }}
+          CALENDAR_KEY: ${{ secrets.CALENDAR_KEY }}
