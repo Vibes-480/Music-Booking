@@ -2,7 +2,7 @@
 because this repo's Action logs are public."""
 import json, os, urllib.request, collections
 from datetime import date, timedelta
-KEY, CAL = os.environ["TEAMUP_KEY"].strip(), os.environ["CALENDAR_KEY"].strip()
+KEY, CAL = os.environ["TEAMUP_KEY"].strip(), os.environ["CALENDAR_KEY"].strip().rstrip("/").split("/")[-1]
 def get(path):
     req = urllib.request.Request(f"https://api.teamup.com/{CAL}{path}", headers={"Teamup-Token": KEY})
     try:
