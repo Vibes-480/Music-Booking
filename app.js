@@ -140,6 +140,8 @@ async function refresh() {
 
 /* ---------- actions ---------- */
 async function bookSlot(s, e) {
+  if (!S.subcalId) await loadSubcals();
+  if (!S.subcalId) throw new Error("Pick which calendar to book into in Settings first.");
   const fresh = await getEvents(s, e);        // re-check right before booking
   if (overlaps(s, e, fresh)) throw new Error("Someone booked that time in the meantime. Nothing was booked.");
   await tu("/events", "POST", { subcalendar_ids: [Number(S.subcalId) || S.subcalId].filter(Boolean),
@@ -382,6 +384,7 @@ async function decryptList(v) {
 async function loadKnown() {
   if (!S.ghToken) return;
   const v = await gh("/actions/variables/KNOWN_PEOPLE");
+  if (!v && known.length) { await saveKnown(); return; }   // list was made before the token was added
   if (v?.value) { try { known = await decryptList(v.value); store.set("known", known);
     if (!v.value.startsWith("enc:")) await saveKnown(); } catch {} }
 }
@@ -454,8 +457,9 @@ function renderSettings(first) {
   if (S.teamupKey && S.calendarKey) loadRooms();
   $("#s-save").onclick = () => {
     const n = read(); if (!n.teamupKey || !n.calendarKey) return toast("Fill in the API key and the TeamUp link.");
-    S = { ...n, subcals: S.subcals || [] }; store.set("settings", S); history = null; store.set("history", null);
+    S = { ...n, subcalId: n.subcalId || S.subcalId, subcals: S.subcals || [] }; store.set("settings", S); history = null; store.set("history", null);
     $("#nav").hidden = false; switchTab("now");
+    loadKnown().catch(e => toast(e.message));
   };
 }
 
@@ -473,7 +477,7 @@ function switchTab(t) {
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
 document.addEventListener("visibilitychange", () => { if (!document.hidden && tab === "now" && S.teamupKey) refresh(); });
-setInterval(() => { if (!document.hidden && tab === "now" && S.teamupKey && !pending) refresh(); }, 60000);
+setInterval(() => { if (!document.hidden && tab === "now" && S.teamupKey && !pending && !busy && $("#favform")?.hidden !== false) refresh(); }, 60000);
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 if (!S.teamupKey || !S.calendarKey) renderSettings(true);

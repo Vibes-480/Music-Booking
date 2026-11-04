@@ -43,7 +43,10 @@ def known_list():
     cal = env("CALENDAR_KEY").rstrip("/").split("/")[-1]
     key = hashlib.sha256(f"music-room:{cal}".encode()).digest()
     blob = base64.b64decode(raw[4:])
-    return json.loads(AESGCM(key).decrypt(blob[:12], blob[12:], None))
+    try:
+        return json.loads(AESGCM(key).decrypt(blob[:12], blob[12:], None))
+    except Exception:
+        sys.exit("Couldn't unlock the known-people list. Is CALENDAR_KEY the same TeamUp link the app uses?")
 
 
 def known_map():
@@ -127,12 +130,14 @@ def main():
             continue
         start, end = ts(ev["start_dt"]), ts(ev["end_dt"])
         k_start, k_end = f"s|{ev['id']}|{ev['start_dt']}", f"e|{ev['id']}|{ev['end_dt']}"
-        if k_start not in reminded and now < start <= now + 75 * 60:
-            notify("Music room in 30 min", f"Your booking starts at {datetime.fromisoformat(ev['start_dt']):%H:%M}. Time to head over.",
+        # GitHub runs this roughly every 15-60 minutes, so reminders are handed to ntfy
+        # ahead of time with an exact delivery time.
+        if k_start not in reminded and now < start <= now + 130 * 60:
+            notify(f"Music room at {datetime.fromisoformat(ev['start_dt']):%H:%M}", "Time to head over to your booking.",
                    at=start - START_REMINDER_MIN * 60, priority="default", tags="alarm_clock")
             reminded[k_start] = now
             sent_reminders += 1
-        if k_end not in reminded and start <= now + 35 * 60 and now < end <= now + 35 * 60:
+        if k_end not in reminded and now < end <= now + 70 * 60:
             notify("Music room: 10 min left", f"Your booking ends at {datetime.fromisoformat(ev['end_dt']):%H:%M}.",
                    at=end - END_REMINDER_MIN * 60, priority="default", tags="hourglass")
             reminded[k_end] = now
