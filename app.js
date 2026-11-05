@@ -51,6 +51,19 @@ const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const wd = d => WD[(d.getDay() + 6) % 7];
 const dayLabel = d => { const t = startOfDay(new Date()); const diff = Math.round((startOfDay(d) - t) / 864e5);
   return diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : `${wd(d)} ${d.getDate()}/${d.getMonth() + 1}`; };
+const dmy = d => `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+function dayOptions(selected, days = 60) {
+  const t = startOfDay(new Date()); let o = "";
+  for (let i = 0; i < days; i++) { const d = addMin(t, i * 1440), v = ymd(d);
+    o += `<option value="${v}" ${v === selected ? "selected" : ""}>${i < 2 ? dayLabel(d) + " " : ""}${wd(d)} ${d.getDate()}/${d.getMonth() + 1}</option>`; }
+  return o;
+}
+function timeOptions(selected) {
+  let o = "";
+  for (let m = 0; m < 1440; m += 15) { const v = `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+    o += `<option value="${v}" ${v === selected ? "selected" : ""}>${v}</option>`; }
+  return o;
+}
 const dur = m => { const h = Math.floor(m / 60), r = m % 60; return h && r ? `${h}h ${r}m` : h ? `${h}h` : `${r}m`; };
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -241,14 +254,14 @@ function renderNow() {
     <div class="grid">${favBtns}<button class="wide link" id="addfav">+ Add a favourite slot</button></div>
     <div id="favform" hidden class="form">
       <div class="inline"><label>Day<select id="f-d">${WD.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select></label>
-      <label>From<input id="f-s" type="time" value="19:00" step="900"></label><label>To<input id="f-e" type="time" value="21:00" step="900"></label></div>
+      <label>From<select id="f-s">${timeOptions("19:00")}</select></label><label>To<select id="f-e">${timeOptions("21:00")}</select></label></div>
       <div class="inline"><button id="f-cancel">Cancel</button><button class="primary" id="f-save">Save slot</button></div>
       ${favs.length ? `<button class="link danger" id="f-clear">Remove all favourites</button>` : ""}
     </div>
     <h2>Book later</h2>
     <div class="form">
-      <div class="inline"><label>Day<input id="l-d" type="date" value="${later.date}" min="${ymd(now)}" max="${ymd(addMin(now, 59 * 1440))}"></label>
-        <label>Start<input id="l-t" type="time" value="${later.time}" step="900"></label></div>
+      <div class="inline"><label>Day<select id="l-d">${dayOptions(later.date)}</select></label>
+        <label>Start<select id="l-t">${timeOptions(later.time)}</select></label></div>
       <div class="sub">${dayLabel(lStart)}: ${lDay.length ? lDay.map(e => `${esc(person(e).kind === "me" ? "you" : person(e).name || "no name")} ${hm(e.s)}–${hm(e.e)}`).join(" · ") : "nothing booked yet"}</div>
       ${lTooSoon ? `<div class="sub">Pick a start at least an hour from now.</div>` : ""}
       <div class="grid">${lBtns.join("")}
@@ -377,7 +390,7 @@ function statsHtml() {
       <tr><th>Name</th><th>Month</th><th>3 mo</th><th>6 mo</th><th>Year</th><th>Total</th><th>Avg/mo</th></tr>
       ${rows.map(r => `<tr><td>${r.n.toLowerCase() === me ? `<span class="me">${esc(r.n)}</span>` : esc(r.n)}</td><td>${r.m1}</td><td>${r.m3}</td><td>${r.m6}</td><td>${r.y1}</td><td>${r.all}</td><td>${f1(r.avg)}</td></tr>`).join("")}
     </table></div>
-    <p class="sub">History from ${history.ev.length ? new Date(Math.min(...history.ev.map(x => x[0]))).toLocaleDateString() : "—"} · updated ${new Date(history.fetched).toLocaleString()} · <button class="link" id="hreload">Reload history</button></p>`;
+    <p class="sub">History from ${history.ev.length ? dmy(new Date(Math.min(...history.ev.map(x => x[0])))) : "—"} · updated ${dmy(new Date(history.fetched))} ${hm(new Date(history.fetched))} · <button class="link" id="hreload">Reload history</button></p>`;
 }
 async function renderStats(force) {
   app.innerHTML = `<h1>Stats</h1><div class="list"><div class="empty">Loading booking history…</div></div>`;
