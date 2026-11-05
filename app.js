@@ -159,7 +159,7 @@ async function bookSlot(s, e) {
   const fresh = await getEvents(s, e);        // re-check right before booking
   if (overlaps(s, e, fresh)) throw new Error("Someone booked that time in the meantime. Nothing was booked.");
   await tu("/events", "POST", { subcalendar_ids: [Number(S.subcalId) || S.subcalId].filter(Boolean),
-    title: S.myName, who: S.myName, start_dt: iso(s), end_dt: iso(e), all_day: false });
+    title: S.myName, start_dt: iso(s), end_dt: iso(e), all_day: false });
   return `Booked ${dayLabel(s)} ${hm(s)}–${hm(e)}`;
 }
 async function changeEnd(ev, newEnd) {
