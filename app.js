@@ -100,6 +100,7 @@ let events = [];        // today .. +60 days
 let loadError = "";
 let pending = null;     // confirm sheet {text, run}
 let busy = false;
+let later = { date: "", time: "14:00" };   // "Book later" picker; date defaults to tomorrow
 
 async function loadUpcoming() {
   const now = new Date();
@@ -211,6 +212,20 @@ function renderNow() {
     return `<button class="fav" data-fav="${i}" ${busy ? "disabled" : ""}>${WD[f.d]} ${f.s}–${f.e}<br><small class="sub">next: ${dayLabel(s)}</small></button>`;
   }).join("");
 
+  // book later: any day/time, same length buttons
+  if (!later.date) later.date = ymd(addMin(startOfDay(now), 1440));
+  const lStart = atTime(new Date(later.date + "T00:00"), later.time || "14:00");
+  const lTooSoon = lStart < addMin(now, LEAD_MIN - 1);
+  const lBtns = [];
+  for (let m = 60; m <= MAX_HOURS * 60; m += 30) {
+    const ok = !lTooSoon && !overlaps(lStart, addMin(lStart, m));
+    lBtns.push(`<button data-later="${m}" ${ok && !busy ? "" : "disabled"}>${m / 60}h</button>`);
+  }
+  const lCap = atTime(lStart, DAY_END);
+  let lUntil = nextStartAfter(lStart); if (!lUntil || lUntil > lCap) lUntil = lCap;
+  const lUntilOk = !lTooSoon && !overlaps(lStart, addMin(lStart, 15)) && lUntil - lStart >= 15 * 60000;
+  const lDay = events.filter(e => startOfDay(e.s).getTime() === startOfDay(lStart).getTime());
+
   const upcoming = events.filter(e => isMine(e) && e.s > now);
   app.innerHTML = `
     <h1>Music room <button class="link" id="settings" aria-label="Settings">Settings</button></h1>
@@ -229,6 +244,15 @@ function renderNow() {
       <label>From<input id="f-s" type="time" value="19:00" step="900"></label><label>To<input id="f-e" type="time" value="21:00" step="900"></label></div>
       <div class="inline"><button id="f-cancel">Cancel</button><button class="primary" id="f-save">Save slot</button></div>
       ${favs.length ? `<button class="link danger" id="f-clear">Remove all favourites</button>` : ""}
+    </div>
+    <h2>Book later</h2>
+    <div class="form">
+      <div class="inline"><label>Day<input id="l-d" type="date" value="${later.date}" min="${ymd(now)}" max="${ymd(addMin(now, 59 * 1440))}"></label>
+        <label>Start<input id="l-t" type="time" value="${later.time}" step="900"></label></div>
+      <div class="sub">${dayLabel(lStart)}: ${lDay.length ? lDay.map(e => `${esc(person(e).kind === "me" ? "you" : person(e).name || "no name")} ${hm(e.s)}–${hm(e.e)}`).join(" · ") : "nothing booked yet"}</div>
+      ${lTooSoon ? `<div class="sub">Pick a start at least an hour from now.</div>` : ""}
+      <div class="grid">${lBtns.join("")}
+        <button class="wide primary" id="l-until" ${lUntilOk && !busy ? "" : "disabled"}>${lUntilOk ? `Until next booking · ${hm(lStart)}–${hm(lUntil)} (${dur(Math.round((lUntil - lStart) / 60000))})` : "Until next booking · not possible"}</button></div>
     </div>
     <h2>Your upcoming bookings</h2>
     <div class="list">${upcoming.length ? upcoming.map(e => `<div class="row"><span>${dayLabel(e.s)} <span class="t">${hm(e.s)}–${hm(e.e)}</span></span><button class="danger" data-cancel="${e.id}">Cancel</button></div>`).join("") : `<div class="empty">None booked.</div>`}</div>
@@ -257,6 +281,13 @@ function renderNow() {
     favs.push(f); store.set("favs", favs); render();
   };
   $("#f-clear")?.addEventListener("click", () => { favs = []; store.set("favs", favs); render(); });
+  $("#l-d").onchange = e => { if (e.target.value) { later.date = e.target.value; render(); } };
+  $("#l-t").onchange = e => { if (e.target.value) { later.time = e.target.value; render(); } };
+  app.querySelectorAll("[data-later]").forEach(b => b.onclick = () => {
+    const e = addMin(lStart, Number(b.dataset.later));
+    ask(`Book ${dayLabel(lStart)} ${hm(lStart)}–${hm(e)}?`, () => bookSlot(lStart, e), "Book it");
+  });
+  $("#l-until").onclick = () => ask(`Book ${dayLabel(lStart)} ${hm(lStart)}–${hm(lUntil)}?`, () => bookSlot(lStart, lUntil), "Book it");
   if (current && isMine(current)) {
     $("#leave").onclick = () => {
       const end = new Date(Math.max(ceilTo(new Date(), 5), addMin(current.s, 15)));
@@ -465,7 +496,8 @@ function renderSettings(first) {
 
 /* ---------- tabs ---------- */
 function render() {
-  if (tab === "now") renderNow();
+  const y = window.scrollY;
+  if (tab === "now") { renderNow(); window.scrollTo(0, y); }
   renderConfirm();
 }
 function switchTab(t) {
@@ -477,7 +509,7 @@ function switchTab(t) {
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
 document.addEventListener("visibilitychange", () => { if (!document.hidden && tab === "now" && S.teamupKey) refresh(); });
-setInterval(() => { if (!document.hidden && tab === "now" && S.teamupKey && !pending && !busy && $("#favform")?.hidden !== false) refresh(); }, 60000);
+setInterval(() => { if (!document.hidden && tab === "now" && S.teamupKey && !pending && !busy && $("#favform")?.hidden !== false && !["l-d", "l-t"].includes(document.activeElement?.id)) refresh(); }, 60000);
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 if (!S.teamupKey || !S.calendarKey) renderSettings(true);
